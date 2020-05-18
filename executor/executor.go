@@ -26,7 +26,7 @@ func execSync(pwd string, command string, args ...string) ([]byte, error) {
 }
 
 func Exec(pwd string) ([]byte, error) {
-	return execSync(pwd, "go", "list", "-u", "-m", "-json", "all")
+	return execSync(pwd, "go", "list", "-u", "-m", "-mod=mod", "-json", "all")
 }
 
 func Upgrade(pwd string, pkgs []*Package) ([]byte, error) {
