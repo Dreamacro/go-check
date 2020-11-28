@@ -5,7 +5,7 @@ Check for outdated go module.
 ### Getting Started
 
 ```sh
-$ go get -u -v github.com/Dreamacro/go-check
+$ go install github.com/Dreamacro/go-check
 ```
 
 ### Use Case
