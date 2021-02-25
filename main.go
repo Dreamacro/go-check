@@ -8,8 +8,7 @@ import (
 
 var rootCmd = &cobra.Command{
 	Short: "go-check is a go module updater",
-
-	Run: action.Upgrade,
+	Run:   action.Upgrade,
 }
 
 func main() {
