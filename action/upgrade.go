@@ -3,6 +3,7 @@ package action
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Dreamacro/go-check/executor"
@@ -58,6 +59,17 @@ func Upgrade(cmd *cobra.Command, args []string) {
 	if len(selected) == 0 {
 		return
 	}
+
+	answer := "\n\n" + strings.Join(selected, "\n") + "\n"
+	prompt.Render(
+		survey.MultiSelectQuestionTemplate,
+		survey.MultiSelectTemplateData{
+			MultiSelect: *prompt,
+			Answer:      answer,
+			ShowAnswer:  true,
+			Config:      &survey.PromptConfig{},
+		},
+	)
 
 	shouldUpgrade := []*executor.Package{}
 	for _, item := range selected {
