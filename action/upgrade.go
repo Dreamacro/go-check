@@ -1,17 +1,28 @@
 package action
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/Dreamacro/go-check/common/batch"
 	"github.com/Dreamacro/go-check/executor"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
+	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 )
+
+type mod module.Version
+
+func (m mod) String() string {
+	return m.Path + "@" + m.Version
+}
 
 func Upgrade(cmd *cobra.Command, args []string) {
 	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
@@ -23,21 +34,63 @@ func Upgrade(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	s.Suffix = " Running `go list -u -m -json all`"
-	s.Start()
-	output, err := executor.Exec(pwd)
-	s.Stop()
+	modFile := filepath.Join(pwd, "go.mod")
+	modBuf, err := os.ReadFile(modFile)
+	if err != nil {
+		println("❌ get go.mod failed:", err.Error())
+		return
+	}
+	f, err := modfile.Parse(modFile, modBuf, nil)
 	if err != nil {
 		println(err.Error())
 		return
 	}
 
-	list := executor.Scan([]byte(output))
+	mainModule := []mod{}
+	for _, require := range f.Require {
+		if require.Indirect {
+			continue
+		}
+
+		mainModule = append(mainModule, mod(require.Mod))
+	}
+
+	println("🔍 find main module:\n")
+	for _, m := range mainModule {
+		println(m.String())
+	}
+	println("")
+
+	b, _ := batch.New(context.Background(), batch.WithConcurrencyNum(10))
+	for _, module := range mainModule {
+		m := module
+		b.Go(m.Path, func() (interface{}, error) {
+			return executor.GetModuleUpdate(pwd, m.Path)
+		})
+	}
+
+	result, bErr := b.WaitAndGetResult()
+	if bErr != nil {
+		println(bErr.Err.Error())
+		return
+	}
+
 	texts := []string{}
-	mapping := map[string]*executor.Package{}
-	for _, pkg := range list {
-		if !pkg.Main && pkg.Update != nil && !pkg.Indirect {
-			key := fmt.Sprintf("%s (%s --> %s)", pkg.Path, pkg.Version, pkg.Update.Version)
+	mapping := map[string]*executor.Module{}
+	for _, require := range f.Require {
+		if require.Indirect {
+			continue
+		}
+
+		value := result[require.Mod.Path]
+		pkg := value.Value.(*executor.Module)
+
+		if pkg.Update == nil {
+			continue
+		}
+
+		if pkg.Update.Version != require.Mod.Version {
+			key := fmt.Sprintf("%s (%s --> %s)", pkg.Path, require.Mod.Version, pkg.Update.Version)
 			texts = append(texts, key)
 			mapping[key] = pkg
 		}
@@ -71,7 +124,7 @@ func Upgrade(cmd *cobra.Command, args []string) {
 		},
 	)
 
-	shouldUpgrade := []*executor.Package{}
+	shouldUpgrade := []*executor.Module{}
 	for _, item := range selected {
 		shouldUpgrade = append(shouldUpgrade, mapping[item])
 	}
