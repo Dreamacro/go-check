@@ -12,6 +12,7 @@ import (
 	"github.com/Dreamacro/go-check/executor"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/avast/retry-go"
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/modfile"
@@ -61,15 +62,28 @@ func Upgrade(cmd *cobra.Command, args []string) {
 	}
 	println("")
 
+	s.Suffix = " find module information..."
+	s.Start()
+
 	b, _ := batch.New(context.Background(), batch.WithConcurrencyNum(10))
 	for _, module := range mainModule {
 		m := module
-		b.Go(m.Path, func() (interface{}, error) {
-			return executor.GetModuleUpdate(pwd, m.Path)
+		b.Go(m.Path, func() (ret interface{}, err error) {
+			err = retry.Do(
+				func() error {
+					info, err := executor.GetModuleUpdate(pwd, m.Path)
+					if err == nil {
+						ret = info
+					}
+					return err
+				},
+			)
+			return
 		})
 	}
 
 	result, bErr := b.WaitAndGetResult()
+	s.Stop()
 	if bErr != nil {
 		println(bErr.Err.Error())
 		return
