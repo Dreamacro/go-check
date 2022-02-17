@@ -12,7 +12,7 @@ import (
 	"github.com/Dreamacro/go-check/executor"
 
 	"github.com/AlecAivazis/survey/v2"
-	"github.com/avast/retry-go"
+	"github.com/avast/retry-go/v4"
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/modfile"
