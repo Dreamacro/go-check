@@ -25,6 +25,15 @@ func (m mod) String() string {
 	return m.Path + "@" + m.Version
 }
 
+func Contains[S ~[]E, E comparable](s S, v E) bool {
+	for _, item := range s {
+		if item == v {
+			return true
+		}
+	}
+	return false
+}
+
 func Upgrade(cmd *cobra.Command, args []string) {
 	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
 	s.Color("yellow")
@@ -47,9 +56,21 @@ func Upgrade(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	directoryModulePath := []string{}
+	for _, require := range f.Replace {
+		if modfile.IsDirectoryPath(require.New.Path) {
+			directoryModulePath = append(directoryModulePath, require.Old.Path)
+		}
+	}
+
 	mainModule := []mod{}
 	for _, require := range f.Require {
 		if require.Indirect {
+			continue
+		}
+
+		if Contains(directoryModulePath, require.Mod.Path) {
+			println("🚧", require.Mod.Path, "is replace as a directory path, skip it.")
 			continue
 		}
 
@@ -96,7 +117,11 @@ func Upgrade(cmd *cobra.Command, args []string) {
 			continue
 		}
 
-		value := result[require.Mod.Path]
+		value, ok := result[require.Mod.Path]
+		if !ok {
+			continue
+		}
+
 		pkg := value.Value.(*executor.Module)
 
 		if pkg.Update == nil {
