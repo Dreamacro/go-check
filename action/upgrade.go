@@ -6,14 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/Dreamacro/go-check/common/batch"
 	"github.com/Dreamacro/go-check/executor"
 
-	"github.com/AlecAivazis/survey/v2"
 	"github.com/avast/retry-go/v4"
-	"github.com/briandowns/spinner"
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/huh/spinner"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
@@ -35,9 +35,6 @@ func Contains[S ~[]E, E comparable](s S, v E) bool {
 }
 
 func Upgrade(cmd *cobra.Command, args []string) {
-	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
-	s.Color("yellow")
-
 	pwd, err := os.Getwd()
 	if err != nil {
 		println(err.Error())
@@ -83,46 +80,56 @@ func Upgrade(cmd *cobra.Command, args []string) {
 	}
 	println("")
 
-	s.Suffix = " find module information..."
-	s.Start()
+	yellowStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("227"))
+	cyanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 
-	b, _ := batch.New(context.Background(), batch.WithConcurrencyNum(10))
-	for _, module := range mainModule {
-		m := module
-		b.Go(m.Path, func() (ret interface{}, err error) {
-			err = retry.Do(
-				func() error {
-					info, err := executor.GetModuleUpdate(pwd, m.Path)
-					if err == nil {
-						ret = info
-					}
-					return err
-				},
-			)
-			return
-		})
-	}
+	b, ctx := batch.New(context.Background(), batch.WithConcurrencyNum[*executor.Module](10))
 
-	result, bErr := b.WaitAndGetResult()
-	s.Stop()
+	var (
+		result map[string]batch.Result[*executor.Module]
+		bErr   *batch.Error
+	)
+
+	go func() {
+		for _, module := range mainModule {
+			m := module
+			b.Go(m.Path, func() (ret *executor.Module, err error) {
+				err = retry.Do(
+					func() error {
+						info, err := executor.GetModuleUpdate(pwd, m.Path)
+						if err == nil {
+							ret = info
+						}
+						return err
+					},
+				)
+				return
+			})
+		}
+
+		result, bErr = b.WaitAndGetResult()
+	}()
+
+	spinner.New().
+		Type(spinner.Jump).
+		Title(yellowStyle.Render(" Find module information...")).
+		Context(ctx).
+		Run()
+
 	if bErr != nil {
 		println(bErr.Err.Error())
 		return
 	}
 
-	texts := []string{}
+	texts := []huh.Option[string]{}
 	mapping := map[string]*executor.Module{}
 	for _, require := range f.Require {
 		if require.Indirect {
 			continue
 		}
 
-		value, ok := result[require.Mod.Path]
-		if !ok {
-			continue
-		}
-
-		pkg := value.Value.(*executor.Module)
+		value := result[require.Mod.Path]
+		pkg := value.Value
 
 		if pkg.Update == nil {
 			continue
@@ -130,7 +137,7 @@ func Upgrade(cmd *cobra.Command, args []string) {
 
 		if pkg.Update.Version != require.Mod.Version {
 			key := fmt.Sprintf("%s (%s --> %s)", pkg.Path, require.Mod.Version, pkg.Update.Version)
-			texts = append(texts, key)
+			texts = append(texts, huh.NewOption(key, key))
 			mapping[key] = pkg
 		}
 	}
@@ -140,47 +147,55 @@ func Upgrade(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	lipgloss.DefaultRenderer().Output().ClearScreen()
+
 	selected := []string{}
-	prompt := &survey.MultiSelect{
-		Message:  "Select the packages you want to upgrade",
-		PageSize: 20,
-		Options:  texts,
+	err = huh.NewMultiSelect[string]().
+		Options(texts...).
+		Title(cyanStyle.Render("Select the packages you want to upgrade")).
+		Value(&selected).
+		WithTheme(huh.ThemeBase16()).
+		Run()
+
+	if err != nil {
+		return
 	}
-	survey.AskOne(prompt, &selected)
 
 	if len(selected) == 0 {
 		return
 	}
 
-	answer := "\n\n" + strings.Join(selected, "\n") + "\n"
-	prompt.Render(
-		survey.MultiSelectQuestionTemplate,
-		survey.MultiSelectTemplateData{
-			MultiSelect: *prompt,
-			Answer:      answer,
-			ShowAnswer:  true,
-			Config:      &survey.PromptConfig{},
-		},
-	)
+	lipgloss.DefaultRenderer().Output().ClearScreen()
+
+	answer := strings.Join(selected, "\n") + "\n"
+	println(cyanStyle.Render(answer))
 
 	shouldUpgrade := []*executor.Module{}
 	for _, item := range selected {
 		shouldUpgrade = append(shouldUpgrade, mapping[item])
 	}
 
-	s.Suffix = " Installing using `go get`..."
-	s.Start()
-	_, err = executor.Upgrade(pwd, shouldUpgrade)
-	s.Stop()
+	spinner.New().
+		Type(spinner.Jump).
+		Title(yellowStyle.Render(" Installing using `go get`...")).
+		Action(func() {
+			_, err = executor.Upgrade(pwd, shouldUpgrade)
+		}).
+		Run()
+
 	if err != nil {
 		println(err.Error())
 		return
 	}
 
-	s.Suffix = " Running `go mod tidy`"
-	s.Start()
-	_, err = executor.Tidy(pwd)
-	s.Stop()
+	spinner.New().
+		Type(spinner.Jump).
+		Title(yellowStyle.Render(" Running `go mod tidy`")).
+		Action(func() {
+			_, err = executor.Tidy(pwd)
+		}).
+		Run()
+
 	if err != nil {
 		println(err.Error())
 		return
