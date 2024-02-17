@@ -128,9 +128,12 @@ func Upgrade(cmd *cobra.Command, args []string) {
 			continue
 		}
 
-		value := result[require.Mod.Path]
-		pkg := value.Value
+		value, exist := result[require.Mod.Path]
+		if !exist {
+			continue
+		}
 
+		pkg := value.Value
 		if pkg.Update == nil {
 			continue
 		}
