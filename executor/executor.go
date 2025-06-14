@@ -45,7 +45,7 @@ func execSync(pwd string, command string, args ...string) ([]byte, error) {
 }
 
 func GetModuleUpdate(pwd, module string) (*Module, error) {
-	buf, err := execSync(pwd, "go", "list", "-u", "-m", "-mod=mod", "-json", module)
+	buf, err := execSync(pwd, "go", "list", "-u", "-m", "-json", module)
 	if err != nil {
 		return nil, err
 	}
